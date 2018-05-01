@@ -14,29 +14,36 @@ import org.http4s.{AuthedRequest, AuthedService, HttpService, Request, Response,
 
 object authy {
 
-  case class ConsumerUser(userId: String)
+  case class CUser(userId: String)
 
-  case class EnterpriseUser(userId: String)
+  case class EUser(userId: String)
 
   case class Err(message: String)
 
   type AppAuth[F[_], A] = Kleisli[F, Request[F], Either[Err, A]]
 
-  def appAuth[F[_] : Applicative]: AppAuth[F,ConsumerUser] = Kleisli { r =>
+  def cUserAuth[F[_] : Applicative]: AppAuth[F,CUser] = Kleisli { r =>
     r.params
-      .get("works")
-      .flatMap(x => if (x === "true") Option(ConsumerUser("my_consumer_id_2")) else None)
+      .get("cu_works")
+      .flatMap(x => if (x === "true") Option(CUser("my_cu")) else None)
       .toRight(Err(""))
       .pure[F]
   }
 
-  def authAdapter[F[_]: Monad](appAuth: AppAuth[F,ConsumerUser]): AuthMiddleware[F, ConsumerUser] = {
-    val k: Kleisli[OptionT[F, ?], Request[F], ConsumerUser] = Kleisli { req: Request[F] =>
+  def eUserAuth[F[_] : Applicative]: AppAuth[F,EUser] = Kleisli { r =>
+    r.params
+      .get("eu_works")
+      .flatMap(x => if (x === "true") Option(EUser("my_eu")) else None)
+      .toRight(Err(""))
+      .pure[F]
+  }
+
+  def toAuthMiddleware[F[_]: Monad,A](appAuth: AppAuth[F,A]): AuthMiddleware[F, A] = {
+    val k: Kleisli[OptionT[F, ?], Request[F], A] = Kleisli { req: Request[F] =>
       OptionT(appAuth.run(req).map(_.toOption))
     }
     AuthMiddleware(k)
   }
-
 }
 
 import com.example.spike.authy._
@@ -63,22 +70,22 @@ object StaticContentService {
   }
 }
 
-case class HelloWorldService[F[_] : Effect]() {
-  def rhoService(authedContext: AuthedContext[F,ConsumerUser]): RhoService[F] = new RhoService[F] with SwaggerSyntax[F] {
+case class CService[F[_] : Effect]() {
+  def rhoService(authedContext: AuthedContext[F,CUser]): RhoService[F] = new RhoService[F] with SwaggerSyntax[F] {
     "hello service" **
       GET / "hello" / pathVar[String] >>> authedContext.auth |>> {
-      (req: Request[F], name: String, consumerUser: ConsumerUser) =>
-        Ok(Json.obj("message" -> Json.fromString(s"Hello, ${name}. Your id is: ${consumerUser.userId}")))
+      (req: Request[F], name: String, cuser: CUser) =>
+        Ok(Json.obj("message" -> Json.fromString(s"Hello, ${name}. Your id is: ${cuser.userId}")))
     }
   }
+}
 
-
-  def authedService: AuthedService[ConsumerUser,F] = {
-    val x = new Http4sDsl[F] {}
-    import x._
-    AuthedService[ConsumerUser, F] {
-      case GET -> Root / "hello" / name as consumerUser =>
-        Ok(Json.obj("message" -> Json.fromString(s"Hello, ${name}; Your id is ${consumerUser.userId}")))
+case class EService[F[_] : Effect]() {
+  def rhoService(authedContext: AuthedContext[F, EUser]): RhoService[F] = new RhoService[F] with SwaggerSyntax[F] {
+    "hello service" **
+      GET / "hello" / pathVar[String] >>> authedContext.auth |>> {
+      (req: Request[F], name: String, euser: EUser) =>
+        Ok(Json.obj("message" -> Json.fromString(s"Hello, ${name}. Your id is: ${euser.userId}")))
     }
   }
 }
